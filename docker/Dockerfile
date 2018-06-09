@@ -1,4 +1,4 @@
-FROM alpine:latest
+FROM multiarch/alpine:armhf-edge
 
 ENV APP_HOME=/opt/iotawatt/
 
