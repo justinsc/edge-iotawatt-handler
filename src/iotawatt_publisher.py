@@ -104,14 +104,20 @@ def publish_data():
 
     _data = flask.request.get_data()
     _args = flask.request.args.to_dict()
+    _db = _args.get('db')
 
     _client = influxdb.InfluxDBClient(
             host=v_influxdb_host,
             port=v_influxdb_port,
             username='root', 
             password='root', 
-            database=_args.get('db')
+            database=_db
             )
+
+    _dbs = _client.get_list_database()
+    if _db not in [_d['name'] for _d in _dbs]:
+        v_logger.info("InfluxDB database '{:s}' not found. Creating a new one.".format(_db))
+        _client.create_database(_db)
 
     try:
         _result = _client.request(
