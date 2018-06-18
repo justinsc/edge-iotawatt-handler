@@ -49,8 +49,13 @@ class INFLUXDBRequest(flask.Request):
             return (l_points)
 
 PARAMETERS_MAP = {
-        'W':   'Power',
-        'V':   'Voltage',
+        'A':   'current',
+        'AC':  'apparentPower',
+        'PF':  'powerFactor',
+        'W':   'realPower',
+        'Wh':  'consumedEnergy',
+        'F':   'frequency',
+        'V':   'voltage'
 }
 
 MESSAGE_PARAMETERS = PARAMETERS_MAP.keys()
@@ -148,6 +153,8 @@ def publish_data():
             _tag       = v_measure['tag_set']
             _, _value  = v_measure['field_set'].split('=')
             _timestamp = v_measure['timestamp']
+            _dateObserved = datetime.datetime.fromtimestamp(int(_timestamp),
+                        tz=datetime.timezone.utc).isoformat()
 
             _label, _, _parameter = _tag.partition('_')
             _station_id = 'IOTAWATT'
@@ -158,7 +165,8 @@ def publish_data():
 
                 _sensor_tree[_label].update({
                     PARAMETERS_MAP[_parameter]: _value,
-                    'timestamp': _timestamp
+                    'timestamp': _timestamp,
+                    'dateObserved': _dateObserved,
                     })
 
             # Insofar, one message is sent for each sensor
