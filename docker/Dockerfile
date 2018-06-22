@@ -1,5 +1,7 @@
 FROM multiarch/alpine:armhf-edge
 
+LABEL maintainer="Massimo Gaggero <massimo dot gaggero at crs4 dot it>"
+
 ENV APP_HOME=/opt/iotawatt/
 
 # Install required packages
