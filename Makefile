@@ -13,4 +13,4 @@ push:
 	docker push $(DOCKER_IMAGE_NAME)
 
 test:
-	docker run --rm --entrypoint=/bin/echo $(DOCKER_IMAGE_TAGNAME) "Success."
+	docker run --rm --entrypoint=tests/entrypoint.sh $(DOCKER_IMAGE_TAGNAME)
