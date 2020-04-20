@@ -16,17 +16,21 @@
 #  limitations under the License.
 #
 
-import sys
-import json
+import argparse
+import configparser
+import datetime
 import flask
+import influxdb
+import json
+import logging
+import paho.mqtt.publish as publish
+import re
 import signal
 import socket
-import logging
-import influxdb
-import argparse
-import datetime
-import configparser
-import paho.mqtt.publish as publish
+import sys
+
+from collections import defaultdict
+from contextlib import contextmanager
 from werkzeug.utils import cached_property
 
 
@@ -42,27 +46,9 @@ APPLICATION_NAME = 'IOTAWATT_publisher'
 app = flask.Flask(__name__)
 
 
-class INFLUXDBRequest(flask.Request):
-    # accept up to 1kB of transmitted data.
-    max_content_length = 1024
-
-    @cached_property
-    def get_payload(self):
-        _form_content_type = 'application/x-www-form-urlencoded'
-        if self.headers.get('content-type') == _form_content_type:
-            l_points = []
-            v_payload = self.get_data()
-            v_points = v_payload.splitlines()
-            for _point in v_points:
-                l_points.append(
-                    dict(
-                        zip(
-                            ['tag_set', 'field_set', 'timestamp'],
-                            _point.decode().split())))
-
-            return l_points
-
-
+## We expect to receive measurements of fields from the iotawatt
+# with names like "{value}_{key}" with the key-value pairs from this
+# dictionary.  For instance, "current_A", "powerFactor_PF".
 PARAMETERS_MAP = {
     'A': 'current',
     'AC': 'apparentPower',
@@ -76,45 +62,128 @@ PARAMETERS_MAP = {
 MESSAGE_PARAMETERS = PARAMETERS_MAP.keys()
 
 
-@app.route("/query", methods=['POST'])
-def query_data():
+def parse_write_payload(data):
+    # prefer an iterator to parse payload to more easily support large requests
+    return [ parse_line_protocol(match.group(0).decode()) for match in re.finditer(b'[^\n]+', data) ]
+
+
+def parse_line_protocol(line):
+    """
+    This function extracts the information we require from a record
+    formatted according to the InfluxDB line protocol:
+      <measurement>[,<tag_key>=<tag_value>[,<tag_key>=<tag_value>]] <field_key>=<field_value>[,<field_key>=<field_value>] [<timestamp>]
+
+    Notably, we ignore tags.
+    """
+    parts = line.split()
+    if len(parts) < 2 or len(parts) > 3:
+        raise ValueError(
+                "Unexpected line format with {} parts (expected 2 or 3) -> {}".format(
+                    len(parts), line))
+    measurement = parts[0].split(',', 1)[0]
+    fields = [ f.split('=') for f in parts[1].split(',') ]
+    point = dict(
+            measurement=measurement,
+            fields=fields)
+    if len(parts) == 3:
+        point['timestamp'] = parts[2]
+    else:
+        point['timestamp'] = None
+
+    return point
+
+
+def get_value_from_point(label, name, point):
+    # Look through point and take take last value that matches the name
+    # we're looking for.
+    # If the measurement name names, we take the value from the last field
+    # in the point, regardless of the name.
+    # Otherwise, we take the value from the last field that matches the name.
+    # If neither measurement nor and field match the name we're looking for,
+    # then we return None
+    full_name = name + '_' + label
+    if point['measurement'] == full_name:
+        return point['fields'][-1][1]
+    #else:
+    fields = point['fields']
+    for f in reversed(fields):
+        if f[0] == full_name:
+            return f[1]
+    return None
+
+
+@contextmanager
+def influxdb_connection(db_name):
     v_logger = app.config['LOGGER']
     v_influxdb_host = app.config['INFLUXDB_HOST']
     v_influxdb_port = app.config['INFLUXDB_PORT']
-
-    _payload = flask.request.form
-    _db = _payload.get('db')
-    _data = '&'.join(['='.join(_i) for _i in _payload.items()])
 
     _client = influxdb.InfluxDBClient(
         host=v_influxdb_host,
         port=v_influxdb_port,
         username='root',
         password='root',
-        database=_db
+        database=db_name
     )
 
     _dbs = _client.get_list_database()
-    if _db not in [_d['name'] for _d in _dbs]:
+    if db_name not in [_d['name'] for _d in _dbs]:
         v_logger.info(
             "InfluxDB database '{:s}' not found. Creating a new one.".
-            format(_db))
-        _client.create_database(_db)
+            format(db_name))
+        _client.create_database(db_name)
 
     try:
-        _result = _client.request(
-            'query',
-            'POST',
-            params=_data,
-            expected_response_code=200)
-    except Exception as ex:
-        v_logger.error(ex)
+        yield _client
     finally:
         _client.close()
 
-    _response = flask.make_response(_result.text, _result.status_code)
+
+@app.route("/query", methods=['POST'])
+def query_data():
+    v_logger = app.config['LOGGER']
+
+    _payload = flask.request.form
+    _db = _payload.get('db')
+    _data = '&'.join(['='.join(_i) for _i in _payload.items()])
+
+    with influxdb_connection(_db) as _client:
+        try:
+            _result = _client.request(
+                'query',
+                'POST',
+                params=_data,
+                expected_response_code=200)
+            response_text = _result.text
+            response_code = _result.status_code
+        except (influxdb.exceptions.InfluxDBClientError, influxdb.exceptions.InfluxDBServerError) as ex:
+            response_text = ex.content
+            response_code = ex.code if hasattr(ex, 'code') else 500
+            v_logger.error(ex)
+            v_logger.exception(ex)
+
+    _response = flask.make_response(response_text, response_code)
 
     return _response
+
+
+def _write_to_influxdb(db, args, data):
+    v_logger = app.config['LOGGER']
+    with influxdb_connection(db) as _client:
+        try:
+            _result = _client.request(
+                'write',
+                'POST',
+                params=args,
+                data=data,
+                expected_response_code=204)
+            v_logger.debug("Insert data into InfluxDB: {:s}".format(str(data)))
+            return dict(response=_result.text, status_code=_result.status_code)
+        except (influxdb.exceptions.InfluxDBClientError, influxdb.exceptions.InfluxDBServerError) as ex:
+            v_logger.error(ex)
+            v_logger.exception(ex)
+            #  only the client exception has a `code` attribute
+            return dict(response=ex.content, status_code=ex.code if hasattr(ex, 'code') else 500)
 
 
 @app.route("/write", methods=['POST'])
@@ -124,77 +193,59 @@ def publish_data():
     v_mqtt_local_host = app.config['MQTT_LOCAL_HOST']
     v_mqtt_local_port = app.config['MQTT_LOCAL_PORT']
     v_topic = app.config['MQTT_TOPIC']
-    v_influxdb_host = app.config['INFLUXDB_HOST']
-    v_influxdb_port = app.config['INFLUXDB_PORT']
 
     _data = flask.request.get_data()
     _args = flask.request.args.to_dict()
     _db = _args.get('db')
 
-    _client = influxdb.InfluxDBClient(
-        host=v_influxdb_host,
-        port=v_influxdb_port,
-        username='root',
-        password='root',
-        database=_db
-    )
-
-    _dbs = _client.get_list_database()
-    if _db not in [_d['name'] for _d in _dbs]:
-        v_logger.info(
-            "InfluxDB database '{:s}' not found. Creating a new one.".
-            format(_db))
-        _client.create_database(_db)
-
-    try:
-        _result = _client.request(
-            'write',
-            'POST',
-            params=_args,
-            data=_data,
-            expected_response_code=204)
-        v_logger.debug("Insert data into InfluxDB: {:s}".format(str(_data)))
-    except Exception as ex:
-        v_logger.error(ex)
-    finally:
-        _client.close()
-
-    _response = flask.make_response(_result.text, _result.status_code)
+    ret = _write_to_influxdb(_db, _args, _data)
+    _response = flask.make_response(ret['response'], ret['status_code'])
 
     v_messages = []
 
+    _station_id = 'IOTAWATT'
     try:
-        v_payload = flask.request.get_payload
+        v_payload = parse_write_payload(_data)
+        v_logger.debug("request payload: %s", v_payload)
 
-        # Creates a dictionary with the sensor data
-        for v_measure in v_payload:
-            _sensor_tree = dict()
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        for v_point in v_payload:
+            # Create a dictionary with the sensor data for this point.
+            # The dictionary has format: {
+            #   measurement_name (i.e., a value from PARAMETERS_MAP) : {
+            #       'measurement': measurement_name,
+            #       'timestamp': integer timestamp
+            #       'dateObserved': datetime in UTC timezone and iso format
+            _sensor_tree = defaultdict(dict)
 
-            _tag = v_measure['tag_set']
-            _, _value = v_measure['field_set'].split('=')
-            _timestamp = v_measure['timestamp']
-            _dateObserved = datetime.datetime.fromtimestamp(
-                int(_timestamp), tz=datetime.timezone.utc).isoformat()
+            _timestamp = v_point.get('timestamp')
+            if _timestamp is None:
+                _timestamp = int(now.timestamp())
+                _dateObserved = now.isoformat()
+            else:
+                _dateObserved = datetime.datetime.fromtimestamp(
+                        int(_timestamp), tz=datetime.timezone.utc).isoformat()
 
-            _label, _, _parameter = _tag.partition('_')
-            _station_id = 'IOTAWATT'
+            #v_logger.debug("Processing point %s", v_point)
 
-            if _parameter in MESSAGE_PARAMETERS:
-                if _label not in _sensor_tree:
-                    _sensor_tree[_label] = {}
+            for label, measurement in PARAMETERS_MAP.items():
+                value = get_value_from_point(label, measurement, v_point)
+                if value:
+                    v_logger.debug("Found value %s for %s_%s", value, measurement, label)
+                    _sensor_tree[measurement].update({
+                        measurement: value,
+                        'timestamp': _timestamp,
+                        'dateObserved': _dateObserved,
+                    })
+                #else:
+                #    v_logger.debug("%s_%s not present in point", measurement, label)
 
-                _sensor_tree[_label].update({
-                    PARAMETERS_MAP[_parameter]: _value,
-                    'timestamp': _timestamp,
-                    'dateObserved': _dateObserved,
-                })
-
-            # Insofar, one message is sent for each sensor
-            for _label, _data in _sensor_tree.items():
+            # Queue one message to be sent for each sensor
+            for measurement, msg_data in _sensor_tree.items():
                 _message = dict()
-                _message["payload"] = json.dumps(_data)
+                _message["payload"] = json.dumps(msg_data)
                 _message["topic"] = "EnergyMonitor/{}.{}".format(
-                    _station_id, _label)
+                    _station_id, measurement)
                 _message['qos'] = 0
                 _message['retain'] = False
 
@@ -344,7 +395,6 @@ def main():
     }
 
     app.config.from_mapping(config_dict)
-    app.request_class = INFLUXDBRequest
     app.run(host='0.0.0.0')
 
 
