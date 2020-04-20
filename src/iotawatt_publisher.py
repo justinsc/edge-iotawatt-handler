@@ -322,10 +322,12 @@ def main():
 
     logger.setLevel(args.logging_level)
 
-    logger.info("Starting {:s}".format(APPLICATION_NAME))
+    logger.info("Starting %s", APPLICATION_NAME)
     logger.debug(vars(args))
+    logger.debug("Logging at level %s", args.logging_level)
 
     signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
     v_mqtt_topic = 'sensor/' + 'IOTAWATT'
     v_latitude, v_longitude = map(float, args.gps_location.split(','))
