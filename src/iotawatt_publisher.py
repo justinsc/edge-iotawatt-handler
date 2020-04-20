@@ -266,7 +266,7 @@ def configuration_parser(p_args=None):
 
     parser = argparse.ArgumentParser(
         parents=[pre_parser],
-        description=('Collects data from Luftdaten Fine Dust sensor and '
+        description=('Collects data from IotaWatt sensor and '
                      'publish them to a local MQTT broker.'),
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
