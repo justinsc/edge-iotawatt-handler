@@ -10,7 +10,7 @@ script:
 # prepare qemu
 - docker run --rm --privileged multiarch/qemu-user-static:register --reset
 # build image
-- make build
+- make build-final
 # test image
 - make test
 # push image
