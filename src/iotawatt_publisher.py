@@ -72,18 +72,20 @@ def parse_line_protocol(line):
     This function extracts the information we require from a record
     formatted according to the InfluxDB line protocol:
       <measurement>[,<tag_key>=<tag_value>[,<tag_key>=<tag_value>]] <field_key>=<field_value>[,<field_key>=<field_value>] [<timestamp>]
-
-    Notably, we ignore tags.
     """
     parts = line.split()
     if len(parts) < 2 or len(parts) > 3:
         raise ValueError(
                 "Unexpected line format with {} parts (expected 2 or 3) -> {}".format(
                     len(parts), line))
-    measurement = parts[0].split(',', 1)[0]
+
+    measurement, _, tagset = parts[0].partition(',')
+    tags = [ f.split('=') for f in tagset.split(',') if re.fullmatch('.*=.*', f) ]
+
     fields = [ f.split('=') for f in parts[1].split(',') ]
     point = dict(
             measurement=measurement,
+            tags=tags,
             fields=fields)
     if len(parts) == 3:
         point['timestamp'] = parts[2]
@@ -93,23 +95,15 @@ def parse_line_protocol(line):
     return point
 
 
-def get_value_from_point(label, name, point):
-    # Look through point and take take last value that matches the name
-    # we're looking for.
-    # If the measurement name names, we take the value from the last field
-    # in the point, regardless of the name.
-    # Otherwise, we take the value from the last field that matches the name.
-    # If neither measurement nor and field match the name we're looking for,
-    # then we return None
-    full_name = name + '_' + label
-    if point['measurement'] == full_name:
-        return point['fields'][-1][1]
-    #else:
-    fields = point['fields']
-    for f in reversed(fields):
-        if f[0] == full_name:
-            return f[1]
-    return None
+def is_compliant(name):
+    _sensor, _, _label = name.partition('_')
+    return (_label in MESSAGE_PARAMETERS)
+
+
+def get_parameter(name):
+    _sensor, _, _label = name.partition('_')
+    _parameter = PARAMETERS_MAP[_label]
+    return _sensor, _parameter
 
 
 @contextmanager
@@ -203,7 +197,6 @@ def publish_data():
 
     v_messages = []
 
-    _station_id = 'IOTAWATT'
     try:
         v_payload = parse_write_payload(_data)
         v_logger.debug("request payload: %s", v_payload)
@@ -226,19 +219,42 @@ def publish_data():
                 _dateObserved = datetime.datetime.fromtimestamp(
                         int(_timestamp), tz=datetime.timezone.utc).isoformat()
 
-            #v_logger.debug("Processing point %s", v_point)
+            # If one or more tag set with key 'node' are present their values
+            # are appended separated by '-' to form the station id
+            _node_ids = [ tag[1] for tag in v_point['tags']
+                         if tag[0].lower() == 'node' and len(tag[1]) > 0 ]
+            _station_id = '-'.join(_node_ids) if len(_node_ids) else 'IOTAWATT'
 
-            for label, measurement in PARAMETERS_MAP.items():
-                value = get_value_from_point(label, measurement, v_point)
-                if value:
-                    v_logger.debug("Found value %s for %s_%s", value, measurement, label)
-                    _sensor_tree[measurement].update({
-                        measurement: value,
+            # There are two ways to configure InfluxDB in IotaWatt posting:
+            # the first one is to not specify the 'measurement' and 'field'
+            # values. In this case the measurement value is the channel name
+            # and the field name is 'value', e.g: 'CHANNEL_A value=20.0'
+            if is_compliant(v_point['measurement']):
+                _sensor, _parameter = get_parameter(v_point['measurement'])
+                for field in v_point['fields']:
+                    _value = field[1]
+                    _sensor_tree[_sensor].update({
+                        _parameter: _value,
                         'timestamp': _timestamp,
                         'dateObserved': _dateObserved,
                     })
-                #else:
-                #    v_logger.debug("%s_%s not present in point", measurement, label)
+            # The second way is to specify the 'measurement' value and set the
+            # value '$name' as field name. In this case the field name is the
+            # channel name, e.g: 'MEASUREMENT CHANNEL_A=20.0'
+            else:
+                for field in v_point['fields']:
+                    if is_compliant(field[0]):
+                        _sensor, _parameter = get_parameter(field[0])
+                        _value = field[1]
+                        _sensor_tree[_sensor].update({
+                            _parameter: _value,
+                            'timestamp': _timestamp,
+                            'dateObserved': _dateObserved,
+                        })
+                    else:
+                        v_logger.info(
+                            "Field '%s' for measurement '%s' is not compliant",
+                            field[0], v_point['measurement'])
 
             # Queue one message to be sent for each sensor
             for measurement, msg_data in _sensor_tree.items():
@@ -251,15 +267,21 @@ def publish_data():
 
                 v_messages.append(_message)
 
-        v_logger.debug(
-            "Message topic:\'{:s}\', broker:\'{:s}:{:d}\', "
-            "message:\'{:s}\'".format(
-                v_topic, v_mqtt_local_host, v_mqtt_local_port,
-                json.dumps(v_messages)))
-        publish.multiple(v_messages, hostname=v_mqtt_local_host,
+        # Trying to multi-publish an empty array of messages may results in
+        # freezes and/or other odd behaviours
+        if len(v_messages) > 0:
+            v_logger.debug(
+                "Message topic:\'{:s}\', broker:\'{:s}:{:d}\', "
+                "message:\'{:s}\'".format(
+                    v_topic, v_mqtt_local_host, v_mqtt_local_port,
+                    json.dumps(v_messages)))
+
+            publish.multiple(v_messages, hostname=v_mqtt_local_host,
                          port=v_mqtt_local_port)
-    except socket.error:
-        pass
+
+    except socket.error as ex:
+        v_logger.error(ex)
+        v_logger.exception(ex)
 
     return _response
 
