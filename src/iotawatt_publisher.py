@@ -147,6 +147,7 @@ def query_data():
                 'query',
                 'POST',
                 params=_data,
+                headers={'Accept': 'application/json'},
                 expected_response_code=200)
             response_text = _result.text
             response_code = _result.status_code
@@ -252,7 +253,7 @@ def publish_data():
                             'dateObserved': _dateObserved,
                         })
                     else:
-                        v_logger.info(
+                        v_logger.debug(
                             "Field '%s' for measurement '%s' is not compliant",
                             field[0], v_point['measurement'])
 
