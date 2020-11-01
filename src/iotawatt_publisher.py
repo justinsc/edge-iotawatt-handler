@@ -395,6 +395,10 @@ def configuration_parser(p_args=None):
         type=int,
         help='port of the influx database (default: {})'.format(INFLUXDB_PORT))
     parser.add_argument(
+        '--influxdb-db', dest='influxdb_db', action='store',
+        type=str,
+        help='name of the database to use (default: {})'.format(INFLUXDB_DB))
+    parser.add_argument(
         '--gps-location', dest='gps_location', action='store',
         type=str,
         help=('GPS coordinates of the sensor as latitude,longitude '

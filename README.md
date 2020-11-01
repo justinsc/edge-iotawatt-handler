@@ -97,7 +97,7 @@ logging_level = 1
    port of the influx database (default: *8086*)
 *  **--influxdb-db INFLUXDB\_DB**
 
-   database to use (default: *iotawatt*)
+   name of the database to use (default: *iotawatt*)
 *  **--gps-location GPS\_LOCATION**
 
    GPS coordinates of the sensor as latitude,longitude (default: *0.0,0.0*)
