@@ -36,6 +36,7 @@ from werkzeug.utils import cached_property
 
 MQTT_LOCAL_HOST = "localhost"     # MQTT Broker address
 MQTT_LOCAL_PORT = 1883            # MQTT Broker port
+INFLUXDB_DB = "iotawatt"          # INFLUXDB database
 INFLUXDB_HOST = "localhost"     # INFLUXDB address
 INFLUXDB_PORT = 8086            # INFLUXDB port
 GPS_LOCATION = "0.0,0.0"        # DEFAULT location
@@ -140,6 +141,22 @@ def query_data():
     _payload = flask.request.form
     _db = _payload.get('db')
     _data = '&'.join(['='.join(_i) for _i in _payload.items()])
+    _data_dict = { item[0].lower(): item[1] for item in _payload.items() }
+
+    v_logger.debug('Query is: "%s"', _data)
+
+    # The required 'db' must match the configured db
+    if _db != app.config['INFLUXDB_DB']:
+        v_logger.error('Query not allowed: invalid db.')
+        _response = flask.make_response('Query not allowed: invalid db.', 400)
+        return _response
+
+    # This allows only the 'LAST' query to be made and blocks other queries
+    allowed_query = r'^\s*SELECT\s+LAST\s*\(.*\)\s*FROM.*'
+    if not re.match(allowed_query, _data_dict['q']):
+        v_logger.error('Query not allowed: invalid query.')
+        _response = flask.make_response('Query not allowed: invalid query.', 400)
+        return _response
 
     with influxdb_connection(_db) as _client:
         try:
@@ -192,6 +209,12 @@ def publish_data():
     _data = flask.request.get_data()
     _args = flask.request.args.to_dict()
     _db = _args.get('db')
+
+    # The required 'db' must match the configured db
+    if _db != app.config['INFLUXDB_DB']:
+        v_logger.error('Query not allowed: invalid db.')
+        _response = flask.make_response('Query not allowed: invalid db.', 400)
+        return _response
 
     ret = _write_to_influxdb(_db, _args, _data)
     _response = flask.make_response(ret['response'], ret['status_code'])
@@ -305,6 +328,7 @@ def configuration_parser(p_args=None):
         'mqtt_local_host'     : MQTT_LOCAL_HOST,
         'mqtt_local_port'     : MQTT_LOCAL_PORT,
         'logging_level' : logging.INFO,
+        'influxdb_db'   : INFLUXDB_DB,
         'influxdb_host' : INFLUXDB_HOST,
         'influxdb_port' : INFLUXDB_PORT,
         'gps_location'  : GPS_LOCATION,
@@ -413,6 +437,7 @@ def main():
         'LOG_LEVEL'  : args.logging_level,
         'MQTT_TOPIC' : v_mqtt_topic,
 
+        'INFLUXDB_DB' : args.influxdb_db,
         'INFLUXDB_HOST' : args.influxdb_host,
         'INFLUXDB_PORT' : args.influxdb_port,
     }

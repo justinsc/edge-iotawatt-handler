@@ -34,6 +34,9 @@ Values are applied in the following order, the last overwriting the previous:
 * **influxdb\_port**
 
    port of the influx database (default: *8086*)
+* **influxdb\_db**
+
+   the name of the influx database to use (default: *iotawatt*)
 * **gps\_location**
 
    GPS coordinates of the sensor as latitude,longitude (default: *0.0,0.0*)
@@ -45,6 +48,7 @@ When a settings is present both in the *GENERAL* and *application specific*  sec
 * **mqtt\_local\_port**
 * **influxdb\_host**
 * **influxdb\_port**
+* **influxdb\_db**
 * **logging\_level**
 * **gps\_location**
 
@@ -91,6 +95,9 @@ logging_level = 1
 *  **--influxdb-port INFLUXDB\_PORT**
 
    port of the influx database (default: *8086*)
+*  **--influxdb-db INFLUXDB\_DB**
+
+   database to use (default: *iotawatt*)
 *  **--gps-location GPS\_LOCATION**
 
    GPS coordinates of the sensor as latitude,longitude (default: *0.0,0.0*)
