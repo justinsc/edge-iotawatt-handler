@@ -2,7 +2,7 @@ name: Docker Build/Publish Image
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, develop ]
 
 env:
   DOCKER_IMAGE_NAME: "tdmproject/edge-iotawatt-handler"
