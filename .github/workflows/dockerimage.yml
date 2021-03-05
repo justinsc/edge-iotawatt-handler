@@ -30,7 +30,7 @@ jobs:
         username: ${{ secrets.DOCKER_HUB_USER }}
         password: ${{ secrets.DOCKER_HUB_PWD }}
     -
-      name: Build
+      name: Build on master
       if: github.ref == 'refs/heads/master'
       run: |
         docker buildx build \
@@ -39,6 +39,8 @@ jobs:
         -t ${{ env.DOCKER_IMAGE_NAME }}:latest \
         --platform ${{ env.PLATFORM }} \
         -f docker/Dockerfile --output type=registry .
+    -
+      name: Build on develop
       if: github.ref == 'refs/heads/develop'
       run: |
         docker buildx build \
