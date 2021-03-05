@@ -31,10 +31,18 @@ jobs:
         password: ${{ secrets.DOCKER_HUB_PWD }}
     -
       name: Build
-      run: |
-        docker buildx build \
-        --target=final \
-        -t ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }} \
-        -t ${{ env.DOCKER_IMAGE_NAME }}:latest \
-        --platform ${{ env.PLATFORM }} \
-        -f docker/Dockerfile --output type=registry .
+      if: github.ref == 'refs/heads/master'
+        run: |
+          docker buildx build \
+          --target=final \
+          -t ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }} \
+          -t ${{ env.DOCKER_IMAGE_NAME }}:latest \
+          --platform ${{ env.PLATFORM }} \
+          -f docker/Dockerfile --output type=registry .
+      if: github.ref == 'refs/heads/develop'
+        run: |
+          docker buildx build \
+          --target=final \
+          -t ${{ env.DOCKER_IMAGE_NAME }}:dev-${{ env.DOCKER_IMAGE_TAG }} \
+          --platform ${{ env.PLATFORM }} \
+          -f docker/Dockerfile --output type=registry .
