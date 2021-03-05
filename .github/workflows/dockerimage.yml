@@ -7,7 +7,7 @@ on:
 env:
   DOCKER_IMAGE_NAME: "tdmproject/edge-iotawatt-handler"
   DOCKER_IMAGE_TAG: ${{ github.run_number }}
-  PLATFORM: "arm32v7"
+  PLATFORM: "linux/arm/v7"
 
 jobs:
   buildx:
