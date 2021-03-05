@@ -51,11 +51,11 @@ app = flask.Flask(__name__)
 # with names like "{value}_{key}" with the key-value pairs from this
 # dictionary.  For instance, "current_A", "powerFactor_PF".
 PARAMETERS_MAP = {
-    'A': 'current',
-    'AC': 'apparentPower',
+    'I': 'current',
+    'S': 'apparentPower',
     'PF': 'powerFactor',
-    'W': 'realPower',
-    'Wh': 'consumedEnergy',
+    'P': 'realPower',
+    'E': 'consumedEnergy',
     'F': 'frequency',
     'V': 'voltage'
 }
