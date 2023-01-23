@@ -39,6 +39,8 @@ MQTT_LOCAL_PORT = 1883            # MQTT Broker port
 INFLUXDB_DB = "iotawatt"          # INFLUXDB database
 INFLUXDB_HOST = "localhost"     # INFLUXDB address
 INFLUXDB_PORT = 8086            # INFLUXDB port
+INFLUXDB_USER = "root"          # INFLUXDB user
+INFLUXDB_PASSWORD = "root"      # INFLUXDB password
 GPS_LOCATION = "0.0,0.0"        # DEFAULT location
 
 
@@ -112,12 +114,14 @@ def influxdb_connection(db_name):
     v_logger = app.config['LOGGER']
     v_influxdb_host = app.config['INFLUXDB_HOST']
     v_influxdb_port = app.config['INFLUXDB_PORT']
+    v_influxdb_user = app.config['INFLUXDB_USER']
+    v_influxdb_password = app.config['INFLUXDB_PASSWORD']
 
     _client = influxdb.InfluxDBClient(
         host=v_influxdb_host,
         port=v_influxdb_port,
-        username='root',
-        password='root',
+        username=v_influxdb_user,
+        password=v_influxdb_password,
         database=db_name
     )
 
@@ -331,6 +335,8 @@ def configuration_parser(p_args=None):
         'influxdb_db'   : INFLUXDB_DB,
         'influxdb_host' : INFLUXDB_HOST,
         'influxdb_port' : INFLUXDB_PORT,
+        'influxdb_user' : INFLUXDB_USER,
+        'influxdb_password' : INFLUXDB_PASSWORD,
         'gps_location'  : GPS_LOCATION,
     }
 
@@ -395,6 +401,14 @@ def configuration_parser(p_args=None):
         type=int,
         help='port of the influx database (default: {})'.format(INFLUXDB_PORT))
     parser.add_argument(
+        '--influxdb-user', dest='influxdb_user', action='store',
+        type=int,
+        help='username for influx database (default: {})'.format(INFLUXDB_USER))
+    parser.add_argument(
+        '--influxdb-password', dest='influxdb_password', action='store',
+        type=int,
+        help='password for influx database (default: {})'.format(INFLUXDB_PASSWORD))
+    parser.add_argument(
         '--influxdb-db', dest='influxdb_db', action='store',
         type=str,
         help='name of the database to use (default: {})'.format(INFLUXDB_DB))
@@ -444,6 +458,8 @@ def main():
         'INFLUXDB_DB' : args.influxdb_db,
         'INFLUXDB_HOST' : args.influxdb_host,
         'INFLUXDB_PORT' : args.influxdb_port,
+        'INFLUXDB_USER' : args.influxdb_user,
+        'INFLUXDB_PASSWORD' : args.influxdb_password,
     }
 
     app.config.from_mapping(config_dict)
